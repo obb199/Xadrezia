@@ -46,7 +46,7 @@ def get_positional_encoding(height, width, d_model):
     pos_enc[..., :half_dim] = pos_row + pos_col  # Combine row/col features
     pos_enc[..., half_dim:] = pos_row * pos_col  # Add multiplicative interactions
 
-    return tf.constant(pos_enc, dtype=tf.float32)
+    return tf.constant(pos_enc*0.1, dtype=tf.float32)
 
 
 class MultiHeadAttention(keras.layers.Layer):
@@ -70,9 +70,9 @@ class MultiHeadAttention(keras.layers.Layer):
         self.wv = keras.layers.Dense(d_model)
 
         self.final_dense = keras.Sequential([
-            keras.layers.Dense(d_model, activation='relu'),
+            keras.layers.Dense(d_model, activation='relu', use_bias=False),
             keras.layers.Dropout(0.25),
-            keras.layers.Dense(d_model, activation='relu'),
+            keras.layers.Dense(d_model, activation='relu', use_bias=False),
             keras.layers.Dropout(0.25)
         ])
 
@@ -146,10 +146,10 @@ class Encoder(keras.layers.Layer):
         self.norm_1 = keras.layers.LayerNormalization()
         self.norm_2 = keras.layers.LayerNormalization()
 
-        self.final_dense = keras.Sequential([keras.layers.Dense(d_model, activation='relu'),
+        self.final_dense = keras.Sequential([keras.layers.Dense(d_model, activation='relu', use_bias=False),
                                              keras.layers.LayerNormalization(),
                                              keras.layers.Dropout(0.25),
-                                             keras.layers.Dense(d_model, activation='relu'),
+                                             keras.layers.Dense(d_model, activation='relu', use_bias=False),
                                              keras.layers.LayerNormalization(),
                                              keras.layers.Dropout(0.25)
                                              ])
@@ -233,7 +233,7 @@ class ResidualConvolution(keras.layers.Layer):
 class WeightedAverage(keras.layers.Layer):
     def __init__(self, base_params, **kwargs):
         super(WeightedAverage, self).__init__(**kwargs)
-        self.weights_for_avg = tf.Variable(tf.random.normal([8, 8, base_params]), trainable=True)
+        self.weights_for_avg = tf.Variable(tf.random.normal([1, 1, base_params]), trainable=True)
         self.avg = keras.layers.GlobalAvgPool2D()
 
     def call(self, x):
@@ -253,30 +253,27 @@ class Xadrezia(keras.Model):
             call(x): Processes the input and returns concatenated predictions.
 """
 
-    def __init__(self, height=8, width=8, base_params=256, n_encoders=32, **kwargs):
+    def __init__(self, height=8, width=8, base_params=1024, n_encoders=6, **kwargs):
         super(Xadrezia, self).__init__(**kwargs)
         self.base_params = base_params
         self.n_encoders = n_encoders
         self.pos_encoding = get_positional_encoding(height, width, base_params)
         self.convolutions = keras.Sequential(
-            [keras.layers.Conv2D(base_params // 4, kernel_size=5, padding='same', strides=1, use_bias=False),
-             keras.layers.BatchNormalization(),
-             keras.layers.Activation('relu'),
-             ResidualConvolution(base_params // 4),
-             ])
+            [ResidualConvolution(base_params//4)])
 
-        self.encoders = [Encoder(base_params, 16, 8, 8)] * n_encoders
+        self.encoders = keras.Sequential([Encoder(base_params, 16, 8, 8)] * n_encoders)
         self.weighted_global_average = WeightedAverage(base_params)
 
-        self.move = keras.Sequential([keras.layers.Dense(4098, activation='softmax')])
+        self.move = keras.Sequential([keras.layers.Dense(4098, activation='softmax', use_bias=False)])
 
     def call(self, x):
         x = self.convolutions(x)
         x = x + self.pos_encoding
-        prev_result = tf.identity(x)
-        for encoder in self.encoders:
-            x = encoder(x) + prev_result
-            prev_result = tf.identity(x)
+        #prev_result = tf.identity(x)
+        #for encoder in self.encoders:
+            #x = encoder(x) + prev_result
+            #prev_result = tf.identity(x)
+        x = self.encoders(x)
         x = self.weighted_global_average(x)
         move_probabilities = self.move(x)  # Shape: (batch_size, 4098)
         return move_probabilities

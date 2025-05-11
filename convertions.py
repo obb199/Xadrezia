@@ -1,6 +1,6 @@
 from pieces import *
 
-# Dictionaries to convert notation to vector representation
+# Dictionaries to convert notations
 WHITE_CONVERTION = {'N': WHITE_KNIGHT,
                     'B': WHITE_BISHOP,
                     'R': WHITE_ROOK,

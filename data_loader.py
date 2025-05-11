@@ -4,6 +4,7 @@ from generate_training_data import transposition, find_piece
 from table import generate_start_table
 from moves import MOVE_TO_IDX, VALID_MOVES
 from convertions import COLS_CONVERTION
+from random import randint
 
 
 class DataGenerator(keras.utils.Sequence):
@@ -56,6 +57,7 @@ class DataGenerator(keras.utils.Sequence):
         Returns:
             Tuple containing (processed input data, labels in one-hot format).
 """
+        np.random.seed(randint(0, 9999999))
         sorted_idx = np.random.randint(low=0, high=len(X), size=min(self.moves_per_game, len(X)))
 
         final_X, final_y = [], []

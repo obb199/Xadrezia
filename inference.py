@@ -109,5 +109,10 @@ def move_parser(move, board):
 
 
 if __name__ == '__main__':
-    t = generate_start_table()
-    print(get_valid_moves(t, False))
+    xadrezia = Xadrezia()
+    xadrezia.predict(np.random.randn(1, 8, 8, 7), verbose=0)
+    xadrezia.load_weights('/home/user/PycharmProjects/chess_engine/weights_1.weights.h5')
+    table = generate_start_table()
+    move_probabilities = xadrezia.predict(np.array([table]))
+    idx_best_move = np.argmax(move_probabilities)
+    best_move = IDX_TO_MOVE[idx_best_move]
