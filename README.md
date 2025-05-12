@@ -139,5 +139,5 @@ A saída do Transformer é processada por camadas densas para produzir o vetor d
             │   Dense (4098, softmax)    │
             └────────────────────────────┘
 
-![engine vs human](https://sdmntpreastus.oaiusercontent.com/files/00000000-c31c-61f9-9e7d-d03237b88570/raw?se=2025-05-12T01%3A17%3A29Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=02b7f7b5-29f8-416a-aeb6-99464748559d&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-11T21%3A57%3A30Z&ske=2025-05-12T21%3A57%3A30Z&sks=b&skv=2024-08-04&sig=vAptjWIt7GEWx9XQted8A0XCqJkfP6JhlVxwVnKyEIk%3D)
+![engine vs human](https://sdmntprwestus.oaiusercontent.com/files/00000000-85d8-6230-877d-bfa43a12b753/raw?se=2025-05-12T02%3A21%3A05Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=ea1de0bc-0467-43d6-873a-9a5cf0a9f835&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-12T01%3A10%3A54Z&ske=2025-05-13T01%3A10%3A54Z&sks=b&skv=2024-08-04&sig=flAFi6lrlGvhgUWgj/Z128pM7AiqIO0lRa6C7AtQWe0%3D)
 
