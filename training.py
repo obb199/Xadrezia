@@ -1,6 +1,6 @@
 import model
 import utils
-import keras
+import tensorflow as tf
 import data_loader
 import numpy as np
 
@@ -10,8 +10,9 @@ if __name__ == '__main__':
     gen_train = data_loader.DataGenerator(data[:int(len(data) * 0.8)], moves_per_game=10)
     gen_val = data_loader.DataGenerator(data[int(len(data) * 0.8):int(len(data) * 0.9)], moves_per_game=1)
     #gen_test = data_loader.DataGenerator(data[int(len(data)*0.9):], moves_per_game=2)
+
     try:
-        xadrezia = keras.models.load_model(
+        xadrezia = tf.keras.models.load_model(
             'xadrezia_model.keras',
             custom_objects={
                 'Xadrezia': model.Xadrezia,
@@ -21,12 +22,8 @@ if __name__ == '__main__':
                 'WeightedAverage': model.WeightedAverage
             }
         )
-    except ValueError:
+    except:
         xadrezia = model.Xadrezia()
-        xadrezia.predict(np.random.randn(1, 8, 8, 7), verbose=0)
-
-    xadrezia.summary()
-    optimizer = keras.optimizers.Adam(learning_rate=7e-5)
-    xadrezia.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=[keras.metrics.CategoricalAccuracy()])
-    xadrezia.fit(gen_train, epochs=5, validation_data=gen_val)
-    xadrezia.save('xadrezia_model.keras')
+        optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
+        xadrezia.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=[tf.keras.metrics.CategoricalAccuracy()])
+    xadrezia.fit(gen_train, epochs=1, validation_data=gen_val)
