@@ -138,4 +138,6 @@ A saída do Transformer é processada por camadas densas para produzir o vetor d
             │----------------------------│ ◄── Output: move probabilities
             │   Dense (4098, softmax)    │
             └────────────────────────────┘
-![engine vs human](https://sdmntpreastus.oaiusercontent.com/files/00000000-00a0-61f9-a540-05ba59f660dc/raw?se=2025-05-12T01%3A39%3A57Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=02b7f7b5-29f8-416a-aeb6-99464748559d&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-11T18%3A17%3A35Z&ske=2025-05-12T18%3A17%3A35Z&sks=b&skv=2024-08-04&sig=Z23RzZ/Y7Y8S0o8h5Uxg3F0NUqhJoF%2B9OGWZJnKo/Ok%3D)
+
+![engine vs human](https://sdmntpreastus.oaiusercontent.com/files/00000000-00a0-61f9-a540-05ba59f660dc/raw?se=2025-05-12T01%3A45%3A15Z&sp=r&sv=2024-08-04&sr=b&scid=00000000-0000-0000-0000-000000000000&skoid=02b7f7b5-29f8-416a-aeb6-99464748559d&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2025-05-11T18%3A17%3A41Z&ske=2025-05-12T18%3A17%3A41Z&sks=b&skv=2024-08-04&sig=H1xzna%2B0b7u9SSKeGY%2BSr8mfqJ9Th/rsi7kVtiWIDh0%3D)
+
