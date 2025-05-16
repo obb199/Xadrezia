@@ -49,6 +49,7 @@ def get_positional_encoding(height, width, d_model):
     return tf.constant(pos_enc*0.1, dtype=tf.float32)
 
 
+@keras.saving.register_keras_serializable()
 class MultiHeadAttention(keras.layers.Layer):
     """
     Multi-head attention implementation for chess position analysis.
@@ -70,9 +71,9 @@ class MultiHeadAttention(keras.layers.Layer):
         self.wv = keras.layers.Dense(d_model)
 
         self.final_dense = keras.Sequential([
-            keras.layers.Dense(d_model, activation='relu', use_bias=False),
+            keras.layers.Dense(d_model, activation='relu'),
             keras.layers.Dropout(0.25),
-            keras.layers.Dense(d_model, activation='relu', use_bias=False),
+            keras.layers.Dense(d_model, activation='relu'),
             keras.layers.Dropout(0.25)
         ])
 
@@ -128,6 +129,7 @@ class MultiHeadAttention(keras.layers.Layer):
         return output
 
 
+@keras.saving.register_keras_serializable()
 class Encoder(keras.layers.Layer):
     """
         Encoder layer with self-attention and feed-forward network.
@@ -146,10 +148,10 @@ class Encoder(keras.layers.Layer):
         self.norm_1 = keras.layers.LayerNormalization()
         self.norm_2 = keras.layers.LayerNormalization()
 
-        self.final_dense = keras.Sequential([keras.layers.Dense(d_model, activation='relu', use_bias=False),
+        self.final_dense = keras.Sequential([keras.layers.Dense(d_model, activation='relu'),
                                              keras.layers.LayerNormalization(),
                                              keras.layers.Dropout(0.25),
-                                             keras.layers.Dense(d_model, activation='relu', use_bias=False),
+                                             keras.layers.Dense(d_model, activation='relu'),
                                              keras.layers.LayerNormalization(),
                                              keras.layers.Dropout(0.25)
                                              ])
@@ -172,6 +174,7 @@ class Encoder(keras.layers.Layer):
         return encoder_result
 
 
+@keras.saving.register_keras_serializable()
 class ResidualConvolution(keras.layers.Layer):
     """
         Bloco convolucional residual com conexão skip.
@@ -230,16 +233,23 @@ class ResidualConvolution(keras.layers.Layer):
         return x + x_skip
 
 
+@keras.saving.register_keras_serializable()
 class WeightedAverage(keras.layers.Layer):
     def __init__(self, base_params, **kwargs):
         super(WeightedAverage, self).__init__(**kwargs)
-        self.weights_for_avg = tf.Variable(tf.random.normal([1, 1, base_params]), trainable=True)
+        self.weights_for_avg = tf.keras.layers.Dense(base_params)
         self.avg = keras.layers.GlobalAvgPool2D()
 
     def call(self, x):
-        return self.avg(x * self.weights_for_avg)
+        return self.avg(self.weights_for_avg(x))
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({"base_params": self.base_params})
+        return config
 
 
+@keras.saving.register_keras_serializable()
 class Xadrezia(keras.Model):
     """
         Main model for chess move analysis and prediction.
@@ -251,9 +261,9 @@ class Xadrezia(keras.Model):
 
         Methods:
             call(x): Processes the input and returns concatenated predictions.
-"""
+    """
 
-    def __init__(self, height=8, width=8, base_params=1024, n_encoders=6, **kwargs):
+    def __init__(self, height=8, width=8, base_params=1536, n_encoders=6, **kwargs):
         super(Xadrezia, self).__init__(**kwargs)
         self.base_params = base_params
         self.n_encoders = n_encoders
@@ -262,19 +272,15 @@ class Xadrezia(keras.Model):
             [ResidualConvolution(base_params//4)])
 
         self.encoders = keras.Sequential([Encoder(base_params, 16, 8, 8)] * n_encoders)
-        self.weighted_global_average = WeightedAverage(base_params)
+        self.global_avg = tf.keras.layers.GlobalAveragePooling2D()
 
-        self.move = keras.Sequential([keras.layers.Dense(4098, activation='softmax', use_bias=False)])
+        self.move = keras.Sequential([keras.layers.Dense(4098, activation='softmax')])
 
     def call(self, x):
         x = self.convolutions(x)
         x = x + self.pos_encoding
-        #prev_result = tf.identity(x)
-        #for encoder in self.encoders:
-            #x = encoder(x) + prev_result
-            #prev_result = tf.identity(x)
         x = self.encoders(x)
-        x = self.weighted_global_average(x)
+        x = self.global_avg(x)
         move_probabilities = self.move(x)  # Shape: (batch_size, 4098)
         return move_probabilities
 
