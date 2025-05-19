@@ -22,6 +22,7 @@ class DataGenerator(keras.utils.Sequence):
             shuffle: Boolean indicating whether to shuffle the data after each epoch (default: True).
             for_white_generation: Boolean indicating whether to generate data for white moves (default: True).
 """
+
     def __init__(self, games,
                  batch_size=1,
                  moves_per_game=16,
@@ -82,7 +83,7 @@ class DataGenerator(keras.utils.Sequence):
             Tuple containing (features, labels) for the requested batch.
 """
         # Generate indexes of the batch
-        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+        indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
         # Find list of IDs
         list_IDs_temp = [k for k in indexes]
@@ -133,7 +134,7 @@ class DataGenerator(keras.utils.Sequence):
                         pred_move = 'O-O-O'
                     else:
                         col, line = find_piece(board_state, move, is_white)
-                        pred_move = COLS_CONVERTION[col]+str(line)
+                        pred_move = COLS_CONVERTION[col] + str(line)
 
                         pred_move = pred_move + move[-2:]
                     if pred_move in VALID_MOVES:

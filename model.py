@@ -46,7 +46,7 @@ def get_positional_encoding(height, width, d_model):
     pos_enc[..., :half_dim] = pos_row + pos_col  # Combine row/col features
     pos_enc[..., half_dim:] = pos_row * pos_col  # Add multiplicative interactions
 
-    return tf.constant(pos_enc*0.1, dtype=tf.float32)
+    return tf.constant(pos_enc, dtype=tf.float32)
 
 
 @keras.saving.register_keras_serializable()
@@ -70,13 +70,7 @@ class MultiHeadAttention(keras.layers.Layer):
         self.wk = keras.layers.Dense(d_model)
         self.wv = keras.layers.Dense(d_model)
 
-        self.final_dense = keras.Sequential([
-            keras.layers.Dense(d_model, activation='relu'),
-            keras.layers.Dropout(0.25),
-            keras.layers.Dense(d_model, activation='relu'),
-            keras.layers.Dropout(0.25)
-        ])
-
+        self.final_dense = keras.layers.Dense(d_model)
         self.final_reshape = keras.layers.Reshape([height, width, d_model])  # Fixed shape assuming height x width grid
 
     def split_heads(self, x):
@@ -263,15 +257,29 @@ class Xadrezia(keras.Model):
             call(x): Processes the input and returns concatenated predictions.
     """
 
-    def __init__(self, height=8, width=8, base_params=1536, n_encoders=6, **kwargs):
+    def __init__(self, height=8, width=8, base_params=256, n_encoders=12, n_groups=5, **kwargs):
         super(Xadrezia, self).__init__(**kwargs)
         self.base_params = base_params
         self.n_encoders = n_encoders
+        self.n_groups = n_groups
+
         self.pos_encoding = get_positional_encoding(height, width, base_params)
         self.convolutions = keras.Sequential(
-            [ResidualConvolution(base_params//4)])
+            [tf.keras.layers.Conv2D(base_params//4, kernel_size=5, padding='same', use_bias=False),
+             tf.keras.layers.BatchNormalization(),
+             tf.keras.layers.Activation('relu'),
+             ResidualConvolution(base_params//4)])
 
-        self.encoders = keras.Sequential([Encoder(base_params, 16, 8, 8)] * n_encoders)
+        self.encoders = [keras.Sequential([Encoder(base_params, 8, 8, 8)] * n_encoders)]*n_groups
+
+        self.se_block = keras.Sequential([keras.layers.GlobalAvgPool2D(),
+                                          keras.layers.Dense(base_params * n_groups, activation='relu'),
+                                          keras.layers.BatchNormalization(),
+                                          keras.layers.Dense(base_params, activation='relu'),
+                                          keras.layers.BatchNormalization(),
+                                          keras.layers.Dense(base_params*n_groups, activation='sigmoid'),
+                                          keras.layers.Reshape([1, 1, base_params*n_groups])])
+
         self.global_avg = tf.keras.layers.GlobalAveragePooling2D()
 
         self.move = keras.Sequential([keras.layers.Dense(4098, activation='softmax')])
@@ -279,10 +287,49 @@ class Xadrezia(keras.Model):
     def call(self, x):
         x = self.convolutions(x)
         x = x + self.pos_encoding
-        x = self.encoders(x)
+
+        x = tf.concat([encoder(x) for encoder in self.encoders], -1)
+        x = self.se_block(x)*x
         x = self.global_avg(x)
         move_probabilities = self.move(x)  # Shape: (batch_size, 4098)
         return move_probabilities
+
+    """@tf.function
+    def train_step(self, data):
+        x, y = data  # Unpack input data and labels
+        batch_size = tf.shape(x)[0]
+
+        # Initialize variables to accumulate loss and predictions
+        total_loss = tf.zeros([], dtype=tf.float32)
+        y_pred_all = tf.TensorArray(dtype=tf.float32, size=batch_size)
+
+        with tf.GradientTape() as tape:
+            # Process each sample one-by-one
+            for i in tf.range(batch_size):
+                # Extract single sample
+                x_i = tf.expand_dims(x[i], 0)  # Shape: (1, ...)
+                y_i = tf.expand_dims(y[i], 0)  # Shape: (1, ...)
+
+                # Forward pass
+                y_pred_i = self(x_i, training=True)  # Shape: (1, 4098)
+                y_pred_all = y_pred_all.write(i, y_pred_i[0])  # Store prediction, remove batch dim
+
+                # Accumulate loss
+                total_loss += self.compute_loss(x_i, y_i, y_pred_i)
+
+        # Compute gradients
+        grads = tape.gradient(total_loss, self.trainable_variables)
+        # Apply gradients
+        self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
+
+        # Stack predictions for metric updates
+        y_pred_stacked = y_pred_all.stack()  # Shape: (batch_size, 4098)
+
+        # Update metrics
+        for metric in self.metrics:
+            metric.update_state(y, y_pred_stacked)
+
+        return {m.name: m.result() for m in self.metrics}"""
 
 
 """
