@@ -1,4 +1,4 @@
-from generate_training_data import find_controlled_squares, compare_pieces, transposition, verify_check
+"""from generate_training_data import find_controlled_squares, compare_pieces, transposition, verify_check
 from pieces import EMPTY, WHITE_PAWN, WHITE_KNIGHT, WHITE_BISHOP, WHITE_ROOK, WHITE_QUEEN, WHITE_KING, BLACK_PAWN, BLACK_ROOK
 from table import generate_start_table
 from moves import IDX_TO_MOVE
@@ -116,3 +116,4 @@ if __name__ == '__main__':
     move_probabilities = xadrezia.predict(np.array([table]))
     idx_best_move = np.argmax(move_probabilities)
     best_move = IDX_TO_MOVE[idx_best_move]
+"""

@@ -55,9 +55,9 @@ class Convolution(tf.keras.layers.Layer):
              tf.keras.layers.BatchNormalization()])
 
         self.se_block = tf.keras.Sequential([tf.keras.layers.GlobalAvgPool2D(),
-                                          tf.keras.layers.Dense(filters * 4, activation='gelu'),
+                                          tf.keras.layers.Dense(filters * 4, activation='relu'),
                                           tf.keras.layers.BatchNormalization(),
-                                          tf.keras.layers.Dense(filters, activation='gelu'),
+                                          tf.keras.layers.Dense(filters, activation='relu'),
                                           tf.keras.layers.BatchNormalization(),
                                           tf.keras.layers.Dense(filters * 4, activation='sigmoid'),
                                           tf.keras.layers.Reshape([1, 1, filters * 4])])
@@ -75,6 +75,25 @@ class Convolution(tf.keras.layers.Layer):
         x = self.se_block(x) * x
 
         return x + x_skip
+
+
+class SqueezeAndExcitation(tf.keras.layers.Layer):
+    def __init__(self, d_model, sigmoid=True, **kwargs):
+        super(SqueezeAndExcitation, self).__init__(**kwargs)
+        self.d_model = d_model
+
+        self.last_activation = 'sigmoid' if sigmoid else 'tanh'
+
+        self.se_block = tf.keras.Sequential([tf.keras.layers.GlobalAvgPool1D(),
+                                             tf.keras.layers.Dense(d_model, activation='relu'),
+                                             tf.keras.layers.BatchNormalization(),
+                                             tf.keras.layers.Dense(d_model // 4, activation='relu'),
+                                             tf.keras.layers.BatchNormalization(),
+                                             tf.keras.layers.Dense(d_model, self.last_activation),
+                                             tf.keras.layers.Reshape([1, d_model])])
+
+    def call(self, x):
+        return self.se_block(x) * x
 
 
 class MultiHeadAttention(tf.keras.layers.Layer):
@@ -101,7 +120,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         self.k_w = tf.keras.layers.Dense(d_model)
         self.v_w = tf.keras.layers.Dense(d_model)
 
-        self.final_dense = tf.keras.layers.Dense(d_model)
+        self.final_dense = tf.keras.layers.Dense(d_model, activation='relu')
 
     def split_heads(self, x, batch_size):
         """
@@ -181,26 +200,37 @@ class Encoder(tf.keras.layers.Layer):
 
 
 class TransformerXadrezia(tf.keras.Model):
-    def __init__(self, n_patches=64, projection_dim=2048, n_heads=8, n_encoders=8, dropout_rate=0.2, **kwargs):
+
+    def __init__(self, n_patches=64, projection_dim=256, n_heads=8, n_encoders=2, n_groups=2, dropout_rate=0.2, **kwargs):
         super(TransformerXadrezia, self).__init__(**kwargs)
-        self.linear_proj = tf.keras.layers.Dense(projection_dim, activation='relu')
-        #self.conv = Convolution(projection_dim)
-        self.reshape = tf.keras.layers.Reshape([n_patches, projection_dim])
+        self.conv = tf.keras.Sequential([Convolution(projection_dim//2), Convolution(projection_dim//2)])
+        self.post_conv_reshape = tf.keras.layers.Reshape([n_patches, projection_dim//2])
+
+        self.embedding = tf.keras.layers.Embedding(13, projection_dim//2)
         self.pos_enc = gen_positional_encoding(n_patches, projection_dim)
-        self.encoders = tf.keras.Sequential([Encoder(projection_dim, n_patches, n_heads, dropout_rate)]*n_encoders)
+
+        self.se_before_enc = [SqueezeAndExcitation(projection_dim)]*n_groups
+        self.encoders = [tf.keras.Sequential([Encoder(projection_dim, n_patches, n_heads, dropout_rate)]*n_encoders)]*n_groups
+        self.se_after_enc = SqueezeAndExcitation(projection_dim*n_groups)
+
         self.avg = tf.keras.layers.GlobalAveragePooling1D()
-        self.probabilities = tf.keras.Sequential([tf.keras.layers.Dropout(dropout_rate),
-                                                  tf.keras.layers.Dense(4098, activation='relu'),
-                                                  tf.keras.layers.BatchNormalization(),
-                                                  tf.keras.layers.Dropout(dropout_rate),
-                                                  tf.keras.layers.Dense(4098, activation='softmax')])
+        self.probabilities = tf.keras.layers.Dense(4098, activation='softmax')
 
     def call(self, x):
-        x = self.linear_proj(x)
-        #x = self.conv(x)
-        x = self.reshape(x)
-        x += self.pos_enc
-        x = self.encoders(x)
+        tokens = tf.math.argmax(x, axis=-1)
+        tokens = tf.cast(tokens, dtype='float32') + 7 * x[:, :, :, -1]
+        tokens = tf.reshape(tokens, (-1, 64))
+        tokens = tf.cast(tokens, dtype='int32')
+        tokens = self.embedding(tokens)
+
+        x = self.conv(x)
+        x = self.post_conv_reshape(x)
+
+        x = tf.concat([tokens, x], axis=-1) + self.pos_enc
+
+        x = tf.concat([enc(se(x)) for enc, se in zip(self.encoders, self.se_before_enc)], axis=-1)
+
+        x = self.se_after_enc(x)
         x = self.avg(x)
         x = self.probabilities(x)
         return x

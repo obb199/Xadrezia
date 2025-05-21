@@ -2,7 +2,7 @@ from pieces import *
 
 
 def generate_start_table():
-    table = np.zeros([8, 8, 7], dtype='float16')
+    table = np.full([8, 8, 8], fill_value=EMPTY, dtype='float32')
     table[0, 0] = WHITE_ROOK
     table[7, 0] = WHITE_ROOK
     table[1, 0] = WHITE_KNIGHT
@@ -26,15 +26,15 @@ def generate_start_table():
     return table
 
 
-def show_pieces(table):
+def show_pieces(table):  # need optimization!
     converted_table = np.full([8, 8], 'xx')
     for i in range(8):
         for j in range(8):
-            if np.sum(table[i, j]) == 0:
-                continue
-
-            is_white = table[i, j][6] == 1
+            is_white = table[i, j][-1] == 1
             piece_type = np.argmax(table[i, j, :-1])
+
+            if piece_type == 7: #empty
+                continue
 
             if is_white:
                 if piece_type == 0:
@@ -64,3 +64,18 @@ def show_pieces(table):
                     converted_table[i, j] = 'bk'
 
     return converted_table
+
+
+def pieces_to_token(table):
+    converted_table = np.argmax(table[:, :, -1], axis=-1) + 5*table[:,:,-1].astype('int32')
+    return converted_table
+
+
+def piece_to_token(piece_vec):
+    if np.sum(piece_vec) == 0:
+        return 0
+    else:
+        is_white = piece_vec[6] == 1
+        piece_pos = np.argmax(piece_vec)
+
+        return piece_pos+1 if is_white else piece_pos+6

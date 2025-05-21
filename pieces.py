@@ -1,8 +1,9 @@
 import numpy as np
 
-base = np.zeros(7)  # Base vector representing empty piece
+base = np.zeros(8)  # Base vector representing empty piece
 
 EMPTY = np.copy(base)  # Empty square representation
+EMPTY[6] = 1
 
 # White pieces
 WHITE_PAWN = np.copy(base)

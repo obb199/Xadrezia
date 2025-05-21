@@ -1,6 +1,5 @@
 import tensorflow as tf
-import numpy as np
-from generate_training_data import transposition, find_piece
+from generate_training_data import *
 from table import generate_start_table
 from moves import MOVE_TO_IDX, VALID_MOVES
 from convertions import COLS_CONVERTION
@@ -81,7 +80,7 @@ class DataGenerator(tf.keras.utils.Sequence):
 
         Returns:
             Tuple containing (features, labels) for the requested batch.
-"""
+        """
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 

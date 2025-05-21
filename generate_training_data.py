@@ -83,7 +83,7 @@ def find_kings(table):
         Localiza as posições dos reis branco e preto no tabuleiro.
 
         Args:
-            table: Tabuleiro de xadrez representado como um array numpy 8x8x7.
+            table: Tabuleiro de xadrez representado como um array numpy 8x8x8.
 
         Returns:
             Tupla contendo ((col_white, row_white), (col_black, row_black)) com as posições dos reis.
@@ -108,7 +108,7 @@ def find_controlled_squares(table, i, j):
         Identifica todos os quadrados controlados por uma peça específica.
 
         Args:
-            table: Tabuleiro de xadrez 8x8x7.
+            table: Tabuleiro de xadrez 8x8x8.
             i: Índice da coluna da peça.
             j: Índice da linha da peça.
 
@@ -299,7 +299,7 @@ def verify_check(table):
         Verifica se algum rei está em xeque.
 
         Args:
-            table: Tabuleiro de xadrez 8x8x7.
+            table: Tabuleiro de xadrez 8x8x8.
 
         Returns:
             Tupla (white_in_check, black_in_check) indicando quais reis estão em xeque.
@@ -331,7 +331,7 @@ def find_piece(table: np.ndarray, move: str, is_white: bool) -> tuple[int, int]:
     Encontra a posição de uma peça no tabuleiro com base no movimento.
 
     Args:
-        table: Tabuleiro de xadrez (8x8x7).
+        table: Tabuleiro de xadrez (8x8x8).
         move: Movimento em notação algébrica (ex: "e4", "Nf3").
         is_white: True se a peça é branca, False se preta.
 
@@ -511,7 +511,7 @@ def transposition(table: np.ndarray, move: str, is_white: bool, previous_move: s
     Atualiza o tabuleiro com base no movimento.
 
     Args:
-        table: Tabuleiro de xadrez (8x8x7).
+        table: Tabuleiro de xadrez (8x8x8).
         move: Movimento em notação algébrica.
         is_white: True se a peça é branca, False se preta.
         previous_move: Lance anterior.
@@ -645,7 +645,7 @@ def transposition(table: np.ndarray, move: str, is_white: bool, previous_move: s
             if not (0 <= start_line <= 7 and compare_pieces(table[start_col, start_line], piece)):
                 raise ValueError(f"Invalid pawn capture: No pawn at {move[0]}{start_line + 1}.")
 
-            if table[col, line][6] == (1 if is_white else 0):
+            if table[col, line][-1] == (1 if is_white else 0):
                 raise ValueError(f"Invalid capture: Cannot capture own piece at {move[-2]}{move[-1]}.")
 
             table[start_col, start_line] = EMPTY
@@ -668,7 +668,7 @@ def transposition(table: np.ndarray, move: str, is_white: bool, previous_move: s
     if 'x' in move:
         if compare_pieces(table[col, line], EMPTY):
             raise ValueError(f"Invalid capture: No piece to capture at {move_clean[-2]}{move_clean[-1]}.")
-        if table[col, line][6] == (1 if is_white else 0):
+        if table[col, line][-1] == (1 if is_white else 0):
             raise ValueError(f"Invalid capture: Cannot capture own piece at {move_clean[-2]}{move_clean[-1]}.")
     else:
         if not compare_pieces(table[col, line], EMPTY):
