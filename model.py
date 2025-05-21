@@ -1,175 +1,24 @@
-import tensorflow as tf
-import keras
 import numpy as np
+from data_loader import tf
 
 
-def get_positional_encoding(height, width, d_model):
-    """
-    Generates 2D positional encoding with vectorized operations.
+def gen_positional_encoding(n_patches, d_model):
+    indexes = np.arange(d_model // 2)
+    divisors = 10000 ** (2 * indexes / d_model)  # shape = d_model//2
 
-    Args:
-        height: Height of the grid
-        width: Width of the grid
-        d_model: Dimension of the encoding
+    pos = np.arange(n_patches)
+    pos = np.expand_dims(pos, -1)  # shape = (n_patchs, 1)
 
-    Returns:
-        Tensor of shape (height, width, d_model)
-    """
-    if d_model % 2 != 0:
-        raise "d_model parameter is not divisible by two."
+    pos_enc = np.zeros([n_patches, d_model], dtype='float32')
 
-    half_dim = d_model // 2
+    # shape pos/divisors = (n_patchs, d_model//2)
+    pos_enc[:, indexes * 2] = np.sin(pos / divisors)
+    pos_enc[:, indexes * 2 + 1] = np.cos(pos / divisors)
 
-    # Generate frequencies using original Transformer's formula
-    j = np.arange(half_dim)
-    freqs = 1 / (10000 ** (2 * j / d_model))
-
-    # Row encoding (vectorized)
-    row_indices = np.arange(height)[:, np.newaxis]  # (height, 1)
-    angles_row = row_indices * freqs  # (height, half_dim)
-    pos_row = np.zeros((height, half_dim))
-    pos_row[:, 0::2] = np.sin(angles_row[:, 0::2])
-    pos_row[:, 1::2] = np.cos(angles_row[:, 1::2])
-
-    # Column encoding (vectorized)
-    col_indices = np.arange(width)[:, np.newaxis]  # (width, 1)
-    angles_col = col_indices * freqs  # (width, half_dim)
-    pos_col = np.zeros((width, half_dim))
-    pos_col[:, 0::2] = np.sin(angles_col[:, 0::2])
-    pos_col[:, 1::2] = np.cos(angles_col[:, 1::2])
-
-    # Broadcast and concatenate
-    pos_row = pos_row[:, np.newaxis, :]  # (height, 1, half_dim)
-    pos_col = pos_col[np.newaxis, :, :]  # (1, width, half_dim)
-
-    pos_enc = np.zeros((height, width, d_model))
-    pos_enc[..., :half_dim] = pos_row + pos_col  # Combine row/col features
-    pos_enc[..., half_dim:] = pos_row * pos_col  # Add multiplicative interactions
-
-    return tf.constant(pos_enc, dtype=tf.float32)
+    return pos_enc
 
 
-@keras.saving.register_keras_serializable()
-class MultiHeadAttention(keras.layers.Layer):
-    """
-    Multi-head attention implementation for chess position analysis.
-
-    Args:
-        d_model: Model dimensionality.
-        n_heads: Number of attention heads.
-        **kwargs: Additional arguments for the Layer class.
-"""
-
-    def __init__(self, d_model, n_heads, height, width, **kwargs):
-        super(MultiHeadAttention, self).__init__(**kwargs)
-        self.d_model = d_model
-        self.n_heads = n_heads
-        self.depth = d_model // n_heads
-
-        self.wq = keras.layers.Dense(d_model)
-        self.wk = keras.layers.Dense(d_model)
-        self.wv = keras.layers.Dense(d_model)
-
-        self.final_dense = keras.layers.Dense(d_model)
-        self.final_reshape = keras.layers.Reshape([height, width, d_model])  # Fixed shape assuming height x width grid
-
-    def split_heads(self, x):
-        """
-        Split the last dimension into (n_heads, depth) and transpose.
-
-        Input shape: (batch_size, 8, 8, d_model)
-        Intermediate shape: (batch_size, 64, n_heads, depth)
-        Output shape: (batch_size, n_heads, 64, depth)
-        """
-        batch_size = tf.shape(x)[0]
-        x = tf.reshape(x, [batch_size, -1, self.n_heads, self.depth])
-        x = tf.transpose(x, perm=[0, 2, 1, 3])
-        return x
-
-    def build(self, input_shape):
-        # Build sub-layers
-        self.wq.build(input_shape)
-        self.wk.build(input_shape)
-        self.wv.build(input_shape)
-        self.final_dense.build([None, input_shape[1] * input_shape[2], self.d_model])
-        super(MultiHeadAttention, self).build(input_shape)
-
-    def call(self, x):
-        # Linear combination with inputs
-        q = self.wq(x)  # Shape: (batch_size, height, width, d_model)
-        k = self.wk(x)  # Shape: (batch_size, height, width, d_model)
-        v = self.wv(x)  # Shape: (batch_size, height, width, d_model)
-
-        # Splitting heads for multi-head attention
-        q = self.split_heads(q)
-        k = self.split_heads(k)
-        v = self.split_heads(v)
-
-        # Calculating attention
-        scale = tf.cast(self.d_model, tf.float32) ** 0.5
-        qk_product = tf.matmul(q, k, transpose_b=True) / scale
-        qk_product = tf.nn.softmax(qk_product)
-        attention_result = tf.matmul(qk_product, v)
-
-        # Return to the initial shape before splitting
-        pre_output = tf.transpose(attention_result, perm=[0, 2, 1, 3])
-        batch_size = tf.shape(pre_output)[0]
-        pre_output = tf.reshape(pre_output, [batch_size, -1, self.d_model])
-
-        # Linear combination with non-linear activation
-        output = self.final_dense(pre_output)
-        output = self.final_reshape(output)  # Shape: (batch_size, height, width, d_model)
-
-        return output
-
-
-@keras.saving.register_keras_serializable()
-class Encoder(keras.layers.Layer):
-    """
-        Encoder layer with self-attention and feed-forward network.
-
-        Args:
-            d_model: Model dimensionality.
-            num_heads: Number of attention heads.
-            **kwargs: Additional arguments for the Layer class.
-"""
-
-    def __init__(self, d_model, num_heads, height, width, **kwargs):
-        super(Encoder, self).__init__(**kwargs)
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.mha = MultiHeadAttention(d_model, num_heads, height, width)
-        self.norm_1 = keras.layers.LayerNormalization()
-        self.norm_2 = keras.layers.LayerNormalization()
-
-        self.final_dense = keras.Sequential([keras.layers.Dense(d_model, activation='relu'),
-                                             keras.layers.LayerNormalization(),
-                                             keras.layers.Dropout(0.25),
-                                             keras.layers.Dense(d_model, activation='relu'),
-                                             keras.layers.LayerNormalization(),
-                                             keras.layers.Dropout(0.25)
-                                             ])
-
-    def build(self, input_shape):
-        # Ensure all sub-layers are built
-        self.mha.build(input_shape)
-        self.norm_1.build(input_shape)
-        self.final_dense.build(input_shape)
-        self.norm_2.build(input_shape)
-        super(Encoder, self).build(input_shape)
-
-    def call(self, x):
-        auto_attention_result = self.mha.call(x)
-        auto_attention_result = self.norm_1(auto_attention_result + x)
-
-        encoder_result = self.final_dense(auto_attention_result)
-        encoder_result = self.norm_2(auto_attention_result + encoder_result)
-
-        return encoder_result
-
-
-@keras.saving.register_keras_serializable()
-class ResidualConvolution(keras.layers.Layer):
+class Convolution(tf.keras.layers.Layer):
     """
         Bloco convolucional residual com conexão skip.
 
@@ -181,38 +30,39 @@ class ResidualConvolution(keras.layers.Layer):
         """
 
     def __init__(self, filters, **kwargs):
-        super(ResidualConvolution, self).__init__(**kwargs)
-        self.conv_1 = keras.Sequential(
-            [keras.layers.Conv2D(filters, kernel_size=(1, 1), padding='same', use_bias=False),
-             keras.layers.Activation('relu'),
-             keras.layers.BatchNormalization()])
+        super(Convolution, self).__init__(**kwargs)
+        filters = filters//4
+        self.conv_1 = tf.keras.Sequential(
+            [tf.keras.layers.Conv2D(filters, kernel_size=(1, 1), padding='same', use_bias=False),
+             tf.keras.layers.Activation('relu'),
+             tf.keras.layers.BatchNormalization()])
 
-        self.conv_2 = keras.Sequential(
-            [keras.layers.Conv2D(filters, kernel_size=(2, 2), padding='same', use_bias=False),
-             keras.layers.Activation('relu'),
-             keras.layers.BatchNormalization()])
+        self.conv_2 = tf.keras.Sequential(
+            [tf.keras.layers.Conv2D(filters, kernel_size=(2, 2), padding='same', use_bias=False),
+             tf.keras.layers.Activation('relu'),
+             tf.keras.layers.BatchNormalization()])
 
-        self.conv_3 = keras.Sequential(
-            [keras.layers.Conv2D(filters, kernel_size=(1, 5), padding='same', use_bias=False),
-             keras.layers.Conv2D(filters, kernel_size=(5, 1), padding='same', use_bias=False),
-             keras.layers.Activation('relu'),
-             keras.layers.BatchNormalization()])
+        self.conv_3 = tf.keras.Sequential(
+            [tf.keras.layers.Conv2D(filters, kernel_size=(1, 5), padding='same', use_bias=False),
+             tf.keras.layers.Conv2D(filters, kernel_size=(5, 1), padding='same', use_bias=False),
+             tf.keras.layers.Activation('relu'),
+             tf.keras.layers.BatchNormalization()])
 
-        self.conv_4 = keras.Sequential(
-            [keras.layers.Conv2D(filters, kernel_size=(8, 1), padding='same', use_bias=False),
-             keras.layers.Conv2D(filters, kernel_size=(1, 8), padding='same', use_bias=False),
-             keras.layers.Activation('relu'),
-             keras.layers.BatchNormalization()])
+        self.conv_4 = tf.keras.Sequential(
+            [tf.keras.layers.Conv2D(filters, kernel_size=(8, 1), padding='same', use_bias=False),
+             tf.keras.layers.Conv2D(filters, kernel_size=(1, 8), padding='same', use_bias=False),
+             tf.keras.layers.Activation('relu'),
+             tf.keras.layers.BatchNormalization()])
 
-        self.se_block = keras.Sequential([keras.layers.GlobalAvgPool2D(),
-                                          keras.layers.Dense(filters * 4, activation='relu'),
-                                          keras.layers.BatchNormalization(),
-                                          keras.layers.Dense(filters, activation='relu'),
-                                          keras.layers.BatchNormalization(),
-                                          keras.layers.Dense(filters * 4, activation='sigmoid'),
-                                          keras.layers.Reshape([1, 1, filters * 4])])
+        self.se_block = tf.keras.Sequential([tf.keras.layers.GlobalAvgPool2D(),
+                                          tf.keras.layers.Dense(filters * 4, activation='gelu'),
+                                          tf.keras.layers.BatchNormalization(),
+                                          tf.keras.layers.Dense(filters, activation='gelu'),
+                                          tf.keras.layers.BatchNormalization(),
+                                          tf.keras.layers.Dense(filters * 4, activation='sigmoid'),
+                                          tf.keras.layers.Reshape([1, 1, filters * 4])])
 
-        self.skip_connection = keras.layers.Conv2D(filters * 4, kernel_size=1, padding='same', use_bias=False)
+        self.skip_connection = tf.keras.layers.Conv2D(filters * 4, kernel_size=1, padding='same', use_bias=False)
 
     def call(self, x):
         x_skip = self.skip_connection(x)
@@ -227,164 +77,130 @@ class ResidualConvolution(keras.layers.Layer):
         return x + x_skip
 
 
-@keras.saving.register_keras_serializable()
-class WeightedAverage(keras.layers.Layer):
-    def __init__(self, base_params, **kwargs):
-        super(WeightedAverage, self).__init__(**kwargs)
-        self.weights_for_avg = tf.keras.layers.Dense(base_params)
-        self.avg = keras.layers.GlobalAvgPool2D()
+class MultiHeadAttention(tf.keras.layers.Layer):
+    """
+    Multi-head attention implementation for chess position analysis.
+
+    Args:
+        d_model: Model dimensionality.
+        n_patches: length of sequence.
+        n_heads: Number of attention heads.
+        **kwargs: Additional arguments for the Layer class.
+"""
+
+    def __init__(self, d_model, n_patches, n_heads, **kwargs):
+        super(MultiHeadAttention, self).__init__(**kwargs)
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_patches = n_patches
+
+        self.depth = d_model // n_heads
+        self.scale = d_model ** 0.5
+
+        self.q_w = tf.keras.layers.Dense(d_model)
+        self.k_w = tf.keras.layers.Dense(d_model)
+        self.v_w = tf.keras.layers.Dense(d_model)
+
+        self.final_dense = tf.keras.layers.Dense(d_model)
+
+    def split_heads(self, x, batch_size):
+        """
+        input shape: batch_size x patchs x d_model
+        d_model = n_heads x depth
+        intermediate shape: batch_size x patches x n_heads x depth
+        output shape: batch_size x n_heads x n_patchs x depth
+        """
+        x = tf.reshape(x, (batch_size, self.n_patches, self.n_heads, self.depth))
+        x = tf.transpose(x, [0, 2, 1, 3])
+        return x
+
+    def concat_heads(self, x, batch_size):
+        """
+        input shape = batch_size x n_heads x patches x depth
+        intermediate = batch_size x patches x n_heads x depth
+        output = batch_size x n_patches x d_model
+        """
+
+        x = tf.transpose(x, [0, 2, 1, 3])
+        x = tf.reshape(x, (batch_size, self.n_patches, self.d_model))
+        return x
 
     def call(self, x):
-        return self.avg(self.weights_for_avg(x))
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"base_params": self.base_params})
-        return config
-
-
-@keras.saving.register_keras_serializable()
-class Xadrezia(keras.Model):
-    """
-        Main model for chess move analysis and prediction.
-
-        Architecture:
-            - Inception Squeeze-and-Excitation Residual convolutional blocks
-            - Encoders with self-attention
-            - Heads for move, column, and row prediction
-
-        Methods:
-            call(x): Processes the input and returns concatenated predictions.
-    """
-
-    def __init__(self, height=8, width=8, base_params=256, n_encoders=12, n_groups=5, **kwargs):
-        super(Xadrezia, self).__init__(**kwargs)
-        self.base_params = base_params
-        self.n_encoders = n_encoders
-        self.n_groups = n_groups
-
-        self.pos_encoding = get_positional_encoding(height, width, base_params)
-        self.convolutions = keras.Sequential(
-            [tf.keras.layers.Conv2D(base_params//4, kernel_size=5, padding='same', use_bias=False),
-             tf.keras.layers.BatchNormalization(),
-             tf.keras.layers.Activation('relu'),
-             ResidualConvolution(base_params//4)])
-
-        self.encoders = [keras.Sequential([Encoder(base_params, 8, 8, 8)] * n_encoders)]*n_groups
-
-        self.se_block = keras.Sequential([keras.layers.GlobalAvgPool2D(),
-                                          keras.layers.Dense(base_params * n_groups, activation='relu'),
-                                          keras.layers.BatchNormalization(),
-                                          keras.layers.Dense(base_params, activation='relu'),
-                                          keras.layers.BatchNormalization(),
-                                          keras.layers.Dense(base_params*n_groups, activation='sigmoid'),
-                                          keras.layers.Reshape([1, 1, base_params*n_groups])])
-
-        self.global_avg = tf.keras.layers.GlobalAveragePooling2D()
-
-        self.move = keras.Sequential([keras.layers.Dense(4098, activation='softmax')])
-
-    def call(self, x):
-        x = self.convolutions(x)
-        x = x + self.pos_encoding
-
-        x = tf.concat([encoder(x) for encoder in self.encoders], -1)
-        x = self.se_block(x)*x
-        x = self.global_avg(x)
-        move_probabilities = self.move(x)  # Shape: (batch_size, 4098)
-        return move_probabilities
-
-    """@tf.function
-    def train_step(self, data):
-        x, y = data  # Unpack input data and labels
         batch_size = tf.shape(x)[0]
+        q, k, v = self.q_w(x), self.k_w(x), self.v_w(x)
 
-        # Initialize variables to accumulate loss and predictions
-        total_loss = tf.zeros([], dtype=tf.float32)
-        y_pred_all = tf.TensorArray(dtype=tf.float32, size=batch_size)
+        q = self.split_heads(q, batch_size)
+        k = self.split_heads(k, batch_size)
+        v = self.split_heads(v, batch_size)
 
-        with tf.GradientTape() as tape:
-            # Process each sample one-by-one
-            for i in tf.range(batch_size):
-                # Extract single sample
-                x_i = tf.expand_dims(x[i], 0)  # Shape: (1, ...)
-                y_i = tf.expand_dims(y[i], 0)  # Shape: (1, ...)
+        attention = tf.matmul(q, k, transpose_b=True) / self.scale
+        attention_score = tf.nn.softmax(attention)
+        attention_result = tf.matmul(attention_score, v)
 
-                # Forward pass
-                y_pred_i = self(x_i, training=True)  # Shape: (1, 4098)
-                y_pred_all = y_pred_all.write(i, y_pred_i[0])  # Store prediction, remove batch dim
+        concated_result = self.concat_heads(attention_result, batch_size)
 
-                # Accumulate loss
-                total_loss += self.compute_loss(x_i, y_i, y_pred_i)
-
-        # Compute gradients
-        grads = tape.gradient(total_loss, self.trainable_variables)
-        # Apply gradients
-        self.optimizer.apply_gradients(zip(grads, self.trainable_variables))
-
-        # Stack predictions for metric updates
-        y_pred_stacked = y_pred_all.stack()  # Shape: (batch_size, 4098)
-
-        # Update metrics
-        for metric in self.metrics:
-            metric.update_state(y, y_pred_stacked)
-
-        return {m.name: m.result() for m in self.metrics}"""
+        return self.final_dense(concated_result)
 
 
+class Encoder(tf.keras.layers.Layer):
+    """
+        Encoder layer with self-attention and feed-forward network.
+
+        Args:
+            d_model: Model dimensionality.
+            n_patches: sequence length
+            n_heads: Number of attention heads.
+            **kwargs: Additional arguments for the Layer class.
 """
 
-            ┌────────────────────────────┐
-            │       Input (8x8x7)        │ ◄── Board representation.
-            └────────────┬───────────────┘
-                         │
-                         ▼
-            ┌────────────────────────────┐
-            │    Convolutional Layer     │
-            │----------------------------│
-            │      Conv2D (32, 5x5)      │ ◄── Initial feature extraction with basic convolution.
-            │ BatchNormalizaztion + ReLU │
-            └────────────┬───────────────┘
-                         │
-                         ▼
-            ┌────────────────────────────┐             
-            │    ResidualInception-SE    │
-            │----------------------------│ ◄── Parallel convolution with different
-            │    Residual Convolution    │       kernels followed by squeeze and
-            │   (4 parallel conv paths)  │         excitation and residual sum.
-            └────────────┬───────────────┘
-                         │
-                         ▼
-            ┌────────────────────────────┐
-            │   Positional Encoding      │
-            │----------------------------│
-            │     2D PosEnc (8x8x256)    │ ◄── Adds spatial context.
-            │   Added to conv features   │
-            └────────────┬───────────────┘
-                         │
-                         ▼
-            ┌────────────────────────────┐
-            │    Encoder Stack [x32]     │
-            │----------------------------│
-            │     MultiHeadAttention     │
-            │    LayerNorm + Residual    │
-            │    FFN (ReLU + Dropout)    │ ◄── Self-attention with 16 heads and residual sum.
-            │    LayerNorm + Residual    │
-            │  Residual with last output │
-            └────────────┬───────────────┘
-                         │
-                         ▼
-            ┌────────────────────────────┐
-            │      Weighted Average      │
-            │----------------------------│◄── Aggregates features with trainable
-            │     Product by weights     │   weighted average for filters division.
-            │      GlobalAvgPool2D       │
-            └────────────┬───────────────┘
-                         │
-                         ▼
-            ┌────────────────────────────┐
-            │    Output Probabilities    │
-            │----------------------------│ ◄── Output: move probabilities.
-            │   Dense (4098, softmax)    │
-            └────────────────────────────┘
-"""
+    def __init__(self, d_model, n_patches, n_heads, dropout_rate=0.2, **kwargs):
+        super(Encoder, self).__init__(**kwargs)
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_patches = n_patches
+
+        self.mha = MultiHeadAttention(d_model, n_patches, n_heads)
+        self.norm_1 = tf.keras.layers.LayerNormalization()
+
+        self.mlp = tf.keras.Sequential([tf.keras.layers.Dense(d_model, activation='relu'),
+                                        tf.keras.layers.LayerNormalization(),
+                                        tf.keras.layers.Dropout(dropout_rate),
+                                        tf.keras.layers.Dense(d_model, activation='relu'),
+                                        tf.keras.layers.LayerNormalization(),
+                                        tf.keras.layers.Dropout(dropout_rate)])
+
+        self.norm_2 = tf.keras.layers.LayerNormalization()
+
+    def call(self, x):
+        x = self.mha(x) + x
+        x = self.norm_1(x)
+        x = self.mlp(x) + x
+        x = self.norm_2(x)
+
+        return x
+
+
+class TransformerXadrezia(tf.keras.Model):
+    def __init__(self, n_patches=64, projection_dim=2048, n_heads=8, n_encoders=8, dropout_rate=0.2, **kwargs):
+        super(TransformerXadrezia, self).__init__(**kwargs)
+        self.linear_proj = tf.keras.layers.Dense(projection_dim, activation='relu')
+        #self.conv = Convolution(projection_dim)
+        self.reshape = tf.keras.layers.Reshape([n_patches, projection_dim])
+        self.pos_enc = gen_positional_encoding(n_patches, projection_dim)
+        self.encoders = tf.keras.Sequential([Encoder(projection_dim, n_patches, n_heads, dropout_rate)]*n_encoders)
+        self.avg = tf.keras.layers.GlobalAveragePooling1D()
+        self.probabilities = tf.keras.Sequential([tf.keras.layers.Dropout(dropout_rate),
+                                                  tf.keras.layers.Dense(4098, activation='relu'),
+                                                  tf.keras.layers.BatchNormalization(),
+                                                  tf.keras.layers.Dropout(dropout_rate),
+                                                  tf.keras.layers.Dense(4098, activation='softmax')])
+
+    def call(self, x):
+        x = self.linear_proj(x)
+        #x = self.conv(x)
+        x = self.reshape(x)
+        x += self.pos_enc
+        x = self.encoders(x)
+        x = self.avg(x)
+        x = self.probabilities(x)
+        return x

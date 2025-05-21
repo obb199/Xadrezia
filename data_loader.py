@@ -1,4 +1,4 @@
-import keras
+import tensorflow as tf
 import numpy as np
 from generate_training_data import transposition, find_piece
 from table import generate_start_table
@@ -7,7 +7,7 @@ from convertions import COLS_CONVERTION
 from random import randint
 
 
-class DataGenerator(keras.utils.Sequence):
+class DataGenerator(tf.keras.utils.Sequence):
     """
         Data generator for training chess models.
 

@@ -1,7 +1,6 @@
 .idea/
 __pycache__/
 matches/
-weights_1.weights.h5
-weights_2.weights.h5
-weights_3.weights.h5
-/home/user/PycharmProjects/chess_engine/matches
+*.weights.h5
+*.h5
+*.keras
