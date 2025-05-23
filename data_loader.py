@@ -5,6 +5,8 @@ from moves import MOVE_TO_IDX, VALID_MOVES
 from convertions import COLS_CONVERTION
 from random import randint
 
+from experimental import expand_piece_representation
+
 
 class DataGenerator(tf.keras.utils.Sequence):
     """
@@ -91,6 +93,8 @@ class DataGenerator(tf.keras.utils.Sequence):
         X, y = self.__data_generation(game)
         X, y = self.__choice_data(X, y)
         X, y = np.array(X), np.array(y)
+
+        X = expand_piece_representation(X)
 
         return X, y
 

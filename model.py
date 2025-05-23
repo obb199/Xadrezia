@@ -200,37 +200,38 @@ class Encoder(tf.keras.layers.Layer):
 
 
 class TransformerXadrezia(tf.keras.Model):
-
-    def __init__(self, n_patches=64, projection_dim=256, n_heads=8, n_encoders=2, n_groups=2, dropout_rate=0.2, **kwargs):
+    def __init__(self, n_patches=64, projection_dim=384, n_heads=16, n_encoders=8, n_groups=2, dropout_rate=0.2, **kwargs):
         super(TransformerXadrezia, self).__init__(**kwargs)
+        self.n_groups = n_groups
+
         self.conv = tf.keras.Sequential([Convolution(projection_dim//2), Convolution(projection_dim//2)])
         self.post_conv_reshape = tf.keras.layers.Reshape([n_patches, projection_dim//2])
 
         self.embedding = tf.keras.layers.Embedding(13, projection_dim//2)
         self.pos_enc = gen_positional_encoding(n_patches, projection_dim)
 
-        self.se_before_enc = [SqueezeAndExcitation(projection_dim)]*n_groups
-        self.encoders = [tf.keras.Sequential([Encoder(projection_dim, n_patches, n_heads, dropout_rate)]*n_encoders)]*n_groups
-        self.se_after_enc = SqueezeAndExcitation(projection_dim*n_groups)
+        self.squeeze_and_excitation = [SqueezeAndExcitation(projection_dim) for _ in range(n_groups)]
+        self.encoders = [tf.keras.Sequential() for _ in range(n_groups)]
+        for i in range(n_groups):
+            for _ in range(n_encoders):
+                self.encoders[i].add(Encoder(projection_dim, n_patches, n_heads, dropout_rate))
+        #self.se_after_enc = SqueezeAndExcitation(projection_dim*n_groups)
 
         self.avg = tf.keras.layers.GlobalAveragePooling1D()
-        self.probabilities = tf.keras.layers.Dense(4098, activation='softmax')
+        self.probabilities = tf.keras.Sequential([tf.keras.layers.Dense(4098, activation='softmax')])
 
     def call(self, x):
         tokens = tf.math.argmax(x, axis=-1)
-        tokens = tf.cast(tokens, dtype='float32') + 7 * x[:, :, :, -1]
         tokens = tf.reshape(tokens, (-1, 64))
         tokens = tf.cast(tokens, dtype='int32')
-        tokens = self.embedding(tokens)
+        embedded_tokens = self.embedding(tokens)
 
         x = self.conv(x)
         x = self.post_conv_reshape(x)
 
-        x = tf.concat([tokens, x], axis=-1) + self.pos_enc
+        x = tf.concat([embedded_tokens, x], axis=-1) + self.pos_enc
 
-        x = tf.concat([enc(se(x)) for enc, se in zip(self.encoders, self.se_before_enc)], axis=-1)
-
-        x = self.se_after_enc(x)
+        x = tf.concat([enc(se(x)) for enc, se in zip(self.encoders, self.squeeze_and_excitation)], axis=-1)
         x = self.avg(x)
         x = self.probabilities(x)
         return x
